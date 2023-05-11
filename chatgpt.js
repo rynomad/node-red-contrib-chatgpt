@@ -10,7 +10,7 @@ module.exports = (RED) => {
     const main = function (config) {
         const node = this;
         RED.nodes.createNode(node, config);
-        const API_KEY = config.API_KEY;
+        const API_KEY = node.credentials.API_KEY;
         const ORGANIZATION = config.Organization;
         const configuration = new Configuration({
             organization: ORGANIZATION,
@@ -271,5 +271,9 @@ module.exports = (RED) => {
         });
     };
 
-    RED.nodes.registerType("chatgpt", main);
+    RED.nodes.registerType("chatgpt", main, {
+        credentials: {
+            API_KEY: { type: "password" },
+        },
+    });
 };
