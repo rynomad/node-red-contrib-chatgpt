@@ -1,3 +1,24 @@
+<style>
+    .loader {
+        border: 5px solid #f3f3f3;
+        border-radius: 50%;
+        border-top: 5px solid #3498db;
+        width: 30px;
+        height: 30px;
+        animation: spin 2s linear infinite;
+        margin: 0 auto; /* This line centers the loader */
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+</style>
+
 <script type="text/javascript">
     function ws_validateserver() {
         if (RED.nodes.node(this.server) != null) {
@@ -15,11 +36,22 @@
                 required: true,
                 validate: RED.validators.typedInput("model"),
             },
+            mode: {
+                value: "system",
+                required: true,
+                validate: RED.validators.typedInput("mode"),
+            },
             temperature: { value: 0.5 },
             system: { value: "" },
             prompt: { value: "" },
             propagateResponse: { value: false },
             server: { type: "websocket-listener", validate: ws_validateserver },
+            wsid: { value: "" },
+            quantity: {
+                value: 1,
+                required: true,
+                validate: RED.validators.typedInput("quantity"),
+            },
         },
         inputs: 1,
         outputs: 1,
@@ -32,17 +64,37 @@
                 const configNodeMaker = $("#node-input-lookup-server");
                 console.log("configNodeMaker", configNodeMaker);
                 (async () => {
+                    let wsid = $("#node-input-wsid").val();
+                    if (wsid) {
+                        return;
+                    }
+
+                    wsid = "" + Math.random();
+
+                    while ($("#node-input-wsid").val() != wsid) {
+                        await new Promise((r) => setTimeout(r, 50));
+                        $("#node-input-wsid").val(wsid);
+                    }
+
+                    while ($("#node-input-server").val() != `_ADD_`) {
+                        await new Promise((r) => setTimeout(r, 50));
+                        $("#node-input-server").val("_ADD_");
+                        $("#node-input-lookup-server").click();
+                    }
+
                     while ($("#node-config-input-wholemsg").val() != "true") {
                         await new Promise((r) => setTimeout(r, 50));
-                        $("#node-input-lookup-server").click();
+                        $("#node-config-input-path").val(`/ws/${wsid}`);
                         $("#node-config-input-wholemsg").val("true");
-                        $("#node-config-input-path").val(`/ws/${this.id}`);
                     }
+
                     $("#node-config-dialog-ok").click();
                 })();
             }
 
-            this.ws = new WebSocket(`ws://${location.host}/ws/${this.id}`);
+            const wsid = $("#node-input-wsid").val();
+            this.ws = new WebSocket(`ws://${location.host}/ws/${wsid}`);
+
             this.ws.onopen = () => {
                 // enable prompt send button
                 $("#send").prop("disabled", false);
@@ -50,10 +102,46 @@
 
             this.ws.onmessage = (msg) => {
                 console.log("got message", msg);
-                $("#send").prop("disabled", false);
+
                 // Insert message into chat UI
-                const messageElement = `<p style='background-color: #e8f5e9; padding: 10px; border-radius: 5px;'><b>Response:</b> ${msg.data}</p>`;
-                $("#chat-messages").append(messageElement);
+                const entries = JSON.parse(msg.data);
+
+                for (const entry of entries) {
+                    if (entry.role === "wait") {
+                        // Create a loading animation
+                        const loadingElement = `<div id='loading' style='text-align:center;'><i class="fa fa-spinner fa-spin"></i></div>`;
+                        $("#chat-messages").append(loadingElement);
+                        // Enable animation between chat and prompt input
+                        $("#node-input-userprompt")
+                            .animate({ opacity: 0.5 }, 500)
+                            .animate({ opacity: 1 }, 500);
+                    } else if (entry.role === "end") {
+                        // Remove any existing loading indicator
+                        $("#loading").remove();
+                        // Create an end message
+                        const endElement = `<div id='end' style='text-align:center;'><b><i>The chat stream has completed.</i></b></div>`;
+                        $("#chat-messages").append(endElement);
+                        $("#send").prop("disabled", false);
+                    } else {
+                        // Remove any existing loading indicator
+                        $("#loading").remove();
+                        // Regular system, user or assistant message
+                        const messageElement = `<pre style='background-color: ${
+                            entry.role === "system"
+                                ? "#F1F1F1"
+                                : entry.role === "user"
+                                ? "#DBF4FF"
+                                : "#FFF5DB"
+                        }; padding: 10px; border-radius: 5px;'><b>${
+                            entry.role
+                        }:</b><br/> ${entry.content}</pre>`;
+                        $("#chat-messages").append(messageElement);
+                    }
+
+                    $("#chat-messages").scrollTop(
+                        $("#chat-messages")[0].scrollHeight
+                    );
+                }
             };
 
             $(".toggle-group").on("click", function () {
@@ -69,13 +157,27 @@
                 }
             });
 
+            $("#chat").hide();
+
+            $("#node-input-mode")
+                .on("change", function () {
+                    if ($(this).val() === "system") {
+                        $("#system-input-row").show();
+                        $("#prompt-input-row").hide();
+                    } else {
+                        $("#system-input-row").hide();
+                        $("#prompt-input-row").show();
+                    }
+                })
+                .change();
+
             $("#send").on("click", () => {
-                const prompt = $("#node-input-prompt").val();
+                const prompt = $("#node-input-userprompt").val();
                 const currentConfig = {
                     model: $("#node-input-model").val(),
                     temperature: $("#node-input-temperature").val(),
                     system: $("#node-input-system").val(),
-                    propagateResponse: $("#node-input-propogateResponse").is(
+                    propagateResponse: $("#node-input-propagateResponse").is(
                         ":checked"
                     ),
                 };
@@ -89,11 +191,9 @@
                 };
 
                 $("#send").prop("disabled", true);
-                $("#node-input-prompt").val("");
+                $("#node-input-userprompt").val("");
 
                 // Insert the sent message into chat UI
-                const messageElement = `<p style='background-color: #bbdefb; padding: 10px; border-radius: 5px;'><b>Sent:</b> ${dataToSend.payload}</p>`;
-                $("#chat-messages").append(messageElement);
                 this.ws.send(JSON.stringify(dataToSend));
             });
         },
@@ -111,6 +211,9 @@
             <span data-i18n="websocket.label.path"></span
         ></label>
         <input type="text" id="node-input-server" />
+    </div>
+    <div class="form-row" id="wsid-row" style="position:absolute;z-index:-1;">
+        <input type="text" id="node-input-wsid" />
     </div>
     <div class="form-row">
         <span class="button-group">
@@ -157,6 +260,25 @@
             </select>
         </div>
         <div class="form-row">
+            <label for="node-input-quantity"
+                ><i class="icon-tag"></i> Quantity</label
+            >
+            <select id="node-input-quantity">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="node-input-mode"><i class="icon-tag"></i> Mode</label>
+            <select id="node-input-mode">
+                <option value="system">system</option>
+                <option value="prompt">prompt</option>
+            </select>
+        </div>
+        <div class="form-row" id="system-input-row">
             <label for="node-input-system"
                 ><i class="icon-tag"></i> System</label
             >
@@ -166,11 +288,18 @@
                 rows="5"
             ></textarea>
         </div>
+        <div class="form-row" id="prompt-input-row" style="display: none;">
+            <label for="node-input-prompt"
+                ><i class="icon-tag"></i> Prompt</label
+            >
+            <textarea
+                id="node-input-prompt"
+                style="width:100%; resize:vertical;"
+                rows="5"
+            ></textarea>
+        </div>
     </div>
-    <div
-        id="chat"
-        style="display:none;height: 95%;flex-flow: column-reverse;display: flex;"
-    >
+    <div id="chat" style="height: 95%;flex-flow: column-reverse;display:flex;">
         <div class="form-row">
             <div
                 style="display:flex; align-items:center; justify-content:space-between;"
@@ -187,15 +316,17 @@
                         >propagate?</label
                     >
                 </div>
-                <button id="send" style="float:right;">Send</button>
+                <button id="send" style="float:right;" disabled="true">
+                    Send
+                </button>
             </div>
         </div>
         <div class="form-row">
-            <label for="node-input-prompt"
+            <label for="node-input-userprompt"
                 ><i class="icon-tag"></i> Prompt</label
             >
             <textarea
-                id="node-input-prompt"
+                id="node-input-userprompt"
                 style="width:100%; resize:vertical;"
                 rows="5"
             ></textarea>
@@ -203,6 +334,21 @@
         <div
             id="chat-messages"
             style="overflow-y: auto; height: 80%; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"
-        ></div>
+        >
+            <div
+                id="wait-indicator"
+                style="display: none; text-align: center; margin-top: 20px;"
+            >
+                <div class="loader"></div>
+            </div>
+            <div
+                id="end-message"
+                style="display: none; text-align: center; margin-top: 20px;"
+            >
+                <p style="font-weight: bold; font-style: italic;">
+                    Chat Stream Completed
+                </p>
+            </div>
+        </div>
     </div>
 </script>

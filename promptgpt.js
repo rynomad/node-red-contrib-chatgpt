@@ -42,16 +42,18 @@ module.exports = function (RED) {
             ) {
                 inFlight = true;
                 console.log("overwritten send", id, msg);
+                msg.server = this.server;
+
                 // is input from websocket listener
                 handleInput(
                     msg,
                     (_msg) => {
+                        inFlight = false;
                         console.log("got link reply, send ", _msg);
                         if (_msg.propagateResponse) {
                             console.log("realSend");
                             this.realSend(_msg);
                         }
-                        this.serverConfig.reply(_msg._session.id, _msg.payload);
                     },
                     () => {
                         //done, no-op
@@ -66,12 +68,13 @@ module.exports = function (RED) {
                     console.log("realSend");
                     this.realSend(msg);
                 }
-                this.serverConfig.reply(msg._session.id, JSON.stringify(msg));
+                // this.serverConfig.reply(msg._session.id, JSON.stringify(msg))
             } else {
                 this.realSend(msg);
             }
         };
         var node = this;
+        var currentConfig = this.config;
         this.serverConfig = RED.nodes.getNode(this.server);
         if (this.serverConfig) {
             this.serverConfig.registerInputNode(this);
@@ -135,14 +138,48 @@ module.exports = function (RED) {
         const messageEvents = {};
         function handleInput(msg, send, done) {
             try {
-                if (msg.system) {
+                if (n.mode === "system" && msg.system) {
                     msg.history = [
                         {
                             role: "system",
                             content: msg.system,
                         },
                     ];
+                } else if (n.mode === "system" && n.system) {
+                    msg.history = [
+                        {
+                            role: "system",
+                            content: n.system,
+                        },
+                    ];
+                } else if (n.mode === "prompt" && n.prompt) {
+                    msg.payload = n.prompt;
                 }
+
+                if (parseInt(n.quantity) > 1) {
+                    msg.n = n.quantity;
+                }
+
+                const currentMessage = [{ role: "user", content: msg.payload }];
+                const history = msg.history || [];
+                const historyToStash = history.concat(currentMessage);
+                const historyToSend =
+                    n.mode === "prompt" ? currentMessage : historyToStash;
+
+                if (msg.server) {
+                    const serverConfig = RED.nodes.getNode(msg.server);
+
+                    serverConfig.reply(
+                        msg._session.id,
+                        JSON.stringify(historyToSend)
+                    );
+
+                    serverConfig.reply(
+                        msg._session.id,
+                        JSON.stringify([{ role: "wait" }])
+                    );
+                }
+
                 const targetNode = RED.nodes.getNode(staticTarget);
                 msg._linkSource = msg._linkSource || [];
                 const messageEvent = {
@@ -153,6 +190,7 @@ module.exports = function (RED) {
                     msg: RED.util.cloneMessage(msg),
                     send,
                     done,
+                    history: historyToStash,
                 };
                 msg._linkSource.push(messageEvent);
                 console.log("targetNode?", targetNode, msg);
@@ -171,6 +209,25 @@ module.exports = function (RED) {
             ) {
                 delete msg._linkSource;
             }
+
+            if (msg.system) {
+                delete msg.system;
+            }
+
+            if (msg.n) {
+                delete msg.n;
+            }
+
+            if (msg.full.data.choices.length > 1) {
+                msg.payload = msg.full.data.choices
+                    .map(
+                        ({ message }, i) =>
+                            `---OPTION ${i} START---\n${message.content}\n---OPTION ${i} END---\n`
+                    )
+                    .join("");
+                msg.history[msg.history.length - 1].content = msg.payload;
+            }
+
             const messageEvent = messageEvents[eventId];
             if (messageEvent) {
                 delete messageEvents[eventId];
@@ -178,6 +235,26 @@ module.exports = function (RED) {
                 messageEvent.done();
             } else {
                 node.send(msg);
+            }
+
+            if (msg.server) {
+                const serverConfig = RED.nodes.getNode(msg.server);
+                serverConfig.reply(
+                    msg._session.id,
+                    JSON.stringify(
+                        msg.history.slice(messageEvent?.history?.length)
+                    )
+                );
+                if (
+                    Object.keys(node.wires).length === 0 ||
+                    this.wires[0].length === 0
+                ) {
+                    // No downstream nodes
+                    serverConfig.reply(
+                        msg._session.id,
+                        JSON.stringify([{ role: "end" }])
+                    );
+                }
             }
         };
     }
