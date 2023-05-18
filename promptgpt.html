@@ -1,0 +1,208 @@
+<script type="text/javascript">
+    function ws_validateserver() {
+        if (RED.nodes.node(this.server) != null) {
+            return true;
+        }
+        return RED._("node-red:websocket.errors.missing-server");
+    }
+    RED.nodes.registerType("PromptGPT", {
+        category: "GPT Nodes",
+        color: "#10A37F",
+        defaults: {
+            name: { value: "" },
+            model: {
+                value: "3.5",
+                required: true,
+                validate: RED.validators.typedInput("model"),
+            },
+            temperature: { value: 0.5 },
+            system: { value: "" },
+            prompt: { value: "" },
+            propagateResponse: { value: false },
+            server: { type: "websocket-listener", validate: ws_validateserver },
+        },
+        inputs: 1,
+        outputs: 1,
+        icon: "arrow-in.png",
+        label: function () {
+            return this.name || "PromptGPT";
+        },
+        oneditprepare: function () {
+            if (!this.server) {
+                const configNodeMaker = $("#node-input-lookup-server");
+                console.log("configNodeMaker", configNodeMaker);
+                (async () => {
+                    while ($("#node-config-input-wholemsg").val() != "true") {
+                        await new Promise((r) => setTimeout(r, 50));
+                        $("#node-input-lookup-server").click();
+                        $("#node-config-input-wholemsg").val("true");
+                        $("#node-config-input-path").val(`/ws/${this.id}`);
+                    }
+                    $("#node-config-dialog-ok").click();
+                })();
+            }
+
+            this.ws = new WebSocket(`ws://${location.host}/ws/${this.id}`);
+            this.ws.onopen = () => {
+                // enable prompt send button
+                $("#send").prop("disabled", false);
+            };
+
+            this.ws.onmessage = (msg) => {
+                console.log("got message", msg);
+                $("#send").prop("disabled", false);
+                // Insert message into chat UI
+                const messageElement = `<p style='background-color: #e8f5e9; padding: 10px; border-radius: 5px;'><b>Response:</b> ${msg.data}</p>`;
+                $("#chat-messages").append(messageElement);
+            };
+
+            $(".toggle-group").on("click", function () {
+                $(".toggle-group").removeClass("selected");
+                $(this).addClass("selected");
+
+                if ($(this).hasClass("toggle-settings")) {
+                    $("#settings").show();
+                    $("#chat").hide();
+                } else {
+                    $("#settings").hide();
+                    $("#chat").show();
+                }
+            });
+
+            $("#send").on("click", () => {
+                const prompt = $("#node-input-prompt").val();
+                const currentConfig = {
+                    model: $("#node-input-model").val(),
+                    temperature: $("#node-input-temperature").val(),
+                    system: $("#node-input-system").val(),
+                    propagateResponse: $("#node-input-propogateResponse").is(
+                        ":checked"
+                    ),
+                };
+
+                const dataToSend = {
+                    payload: prompt,
+                    topic: currentConfig.model === "3.5" ? "turbo" : "gpt4",
+                    temperature: currentConfig.temperature,
+                    system: currentConfig.system,
+                    propagateResponse: currentConfig.propagateResponse,
+                };
+
+                $("#send").prop("disabled", true);
+                $("#node-input-prompt").val("");
+
+                // Insert the sent message into chat UI
+                const messageElement = `<p style='background-color: #bbdefb; padding: 10px; border-radius: 5px;'><b>Sent:</b> ${dataToSend.payload}</p>`;
+                $("#chat-messages").append(messageElement);
+                this.ws.send(JSON.stringify(dataToSend));
+            });
+        },
+    });
+</script>
+
+<script type="text/html" data-template-name="PromptGPT">
+    <div
+        class="form-row"
+        id="websocket-server-row"
+        style="position:absolute;z-index:-1;"
+    >
+        <label for="node-input-server"
+            ><i class="fa fa-bookmark"></i>
+            <span data-i18n="websocket.label.path"></span
+        ></label>
+        <input type="text" id="node-input-server" />
+    </div>
+    <div class="form-row">
+        <span class="button-group">
+            <button
+                type="button"
+                class="red-ui-button toggle selected toggle-group toggle-settings"
+            >
+                <i class="fa fa-wrench"></i>
+            </button>
+            <button
+                type="button"
+                class="red-ui-button toggle toggle-group toggle-chat"
+            >
+                <i class="fa fa-comment"></i>
+            </button>
+        </span>
+    </div>
+    <div id="settings">
+        <div class="form-row">
+            <label for="node-input-name"><i class="icon-tag"></i> Name</label>
+            <input type="text" id="node-input-name" placeholder="Name" />
+        </div>
+        <div class="form-row">
+            <label for="node-input-model"><i class="icon-tag"></i> Model</label>
+            <select id="node-input-model">
+                <option value="3.5">3.5</option>
+                <option value="4">4</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="node-input-temperature"
+                ><i class="icon-tag"></i> Temperature</label
+            >
+            <select id="node-input-temperature">
+                <option value="0.1">0.1</option>
+                <option value="0.2">0.2</option>
+                <option value="0.3">0.3</option>
+                <option value="0.4">0.4</option>
+                <option value="0.5">0.5</option>
+                <option value="0.6">0.6</option>
+                <option value="0.7">0.7</option>
+                <option value="0.8">0.8</option>
+                <option value="0.9">0.9</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label for="node-input-system"
+                ><i class="icon-tag"></i> System</label
+            >
+            <textarea
+                id="node-input-system"
+                style="width:100%; resize:vertical;"
+                rows="5"
+            ></textarea>
+        </div>
+    </div>
+    <div
+        id="chat"
+        style="display:none;height: 95%;flex-flow: column-reverse;display: flex;"
+    >
+        <div class="form-row">
+            <div
+                style="display:flex; align-items:center; justify-content:space-between;"
+            >
+                <div style="display:flex;">
+                    <input
+                        type="checkbox"
+                        id="node-input-propagateResponse"
+                        style="vertical-align: middle;"
+                    />
+                    <label
+                        for="node-input-propagateResponse"
+                        style="vertical-align: middle;"
+                        >propagate?</label
+                    >
+                </div>
+                <button id="send" style="float:right;">Send</button>
+            </div>
+        </div>
+        <div class="form-row">
+            <label for="node-input-prompt"
+                ><i class="icon-tag"></i> Prompt</label
+            >
+            <textarea
+                id="node-input-prompt"
+                style="width:100%; resize:vertical;"
+                rows="5"
+            ></textarea>
+        </div>
+        <div
+            id="chat-messages"
+            style="overflow-y: auto; height: 80%; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px;"
+        ></div>
+    </div>
+</script>

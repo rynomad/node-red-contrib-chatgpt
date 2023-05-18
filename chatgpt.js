@@ -1,4 +1,5 @@
 module.exports = (RED) => {
+    console.log("REGISTER");
     const { Configuration, OpenAIApi } = require("openai");
     const ACCEPT_TOPIC_LIST = [
         "completion",
@@ -34,14 +35,12 @@ module.exports = (RED) => {
         const openai = new OpenAIApi(configuration);
 
         node.on("input", async (msg) => {
+            console.log("msg");
             node.status({
                 fill: "green",
                 shape: "dot",
                 text: "Processing...",
             });
-            if (config.topic != "__EMPTY__") {
-                msg.topic = config.topic;
-            }
             if (msg.topic) {
                 msg.topic = msg.topic.toLowerCase();
             }
@@ -89,7 +88,7 @@ module.exports = (RED) => {
                     });
                     if (error.response) {
                         node.error(error.response.status, msg);
-                        node.error(error.response.data, msg);
+                        node.error(JSON.stringify(error.response.data), msg);
                     } else {
                         node.error(error.message, msg);
                     }
@@ -120,7 +119,7 @@ module.exports = (RED) => {
                     });
                     if (error.response) {
                         node.error(error.response.status, msg);
-                        node.error(error.response.data, msg);
+                        node.error(JSON.stringify(error.response.data), msg);
                     } else {
                         node.error(error.message, msg);
                     }
@@ -129,6 +128,7 @@ module.exports = (RED) => {
                 try {
                     if (typeof msg.history === "undefined") msg.history = [];
                     msg.topic = "turbo";
+                    console.log("msg payload", msg.payload);
                     const input = {
                         role: "user",
                         content: msg.payload,
@@ -169,7 +169,7 @@ module.exports = (RED) => {
                     });
                     if (error.response) {
                         node.error(error.response.status, msg);
-                        node.error(error.response.data, msg);
+                        node.error(JSON.stringify(error.response.data), msg);
                     } else {
                         node.error(error.message, msg);
                     }
@@ -218,7 +218,7 @@ module.exports = (RED) => {
                     });
                     if (error.response) {
                         node.error(error.response.status, msg);
-                        node.error(error.response.data, msg);
+                        node.error(JSON.stringify(error.response.data), msg);
                     } else {
                         node.error(error.message, msg);
                     }
@@ -258,7 +258,7 @@ module.exports = (RED) => {
                     });
                     if (error.response) {
                         node.error(error.response.status, msg);
-                        node.error(error.response.data, msg);
+                        node.error(JSON.stringify(error.response.data), msg);
                     } else {
                         node.error(error.message, msg);
                     }
