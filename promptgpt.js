@@ -53,6 +53,7 @@ module.exports = function (RED) {
                         if (_msg.propagateResponse) {
                             console.log("realSend");
                             this.realSend(_msg);
+                        } else {
                         }
                     },
                     () => {
@@ -247,7 +248,8 @@ module.exports = function (RED) {
                 );
                 if (
                     Object.keys(node.wires).length === 0 ||
-                    this.wires[0].length === 0
+                    this.wires[0].length === 0 ||
+                    !msg.propagateResponse
                 ) {
                     // No downstream nodes
                     serverConfig.reply(
