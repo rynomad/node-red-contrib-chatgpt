@@ -79,8 +79,9 @@
                     while ($("#node-input-server").val() != `_ADD_`) {
                         await new Promise((r) => setTimeout(r, 50));
                         $("#node-input-server").val("_ADD_");
-                        $("#node-input-lookup-server").click();
                     }
+
+                    $("#node-input-lookup-server").click();
 
                     while ($("#node-config-input-wholemsg").val() != "true") {
                         await new Promise((r) => setTimeout(r, 50));
